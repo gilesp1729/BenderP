@@ -152,7 +152,7 @@ void setup() {
     ;  // Wait for ready
   }
   */
-  delay(100);  // wait for serial, but not forever
+  delay(500);  // wait for serial, but not forever
   if (!IMU.begin()) {
     Serial.println("Failed to initialize IMU!");
     while (1);
@@ -278,12 +278,9 @@ void loop() {
       } else if (oldCrankRev < crankRev && currentMillis - oldCrankMillis >= 500) {
         updateCP("crank");
       } else if (currentMillis - previousMillis >= 500) {
-#if 1        
         // simulate some speed on the wheel, 500ms per rev or ~16km/h
-        wheelAdd();
-      //  crankAdd();
-      //  power = 250;
-#endif        
+      // wheelAdd();
+      // crankAdd();
         updateCP("timer");
       }
     }
