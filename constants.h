@@ -14,13 +14,13 @@ const float rho = 1.293;
 const float cda = 0.46;
 
 // Mass of bike and rider conbined
-const float mass = 100;
+const float mass = 90;
 
 // Rolling resistance coefficient
 const float crr = 0.007;
 
 // Circumference of wheel used to measure speed
-const float circ = 2.13;
+const float circ = 2.30;
 
 // Derived constants
 const float crrmg = crr * mass * 9.8;

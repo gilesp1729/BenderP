@@ -34,6 +34,7 @@ float xc, yc, zc;
 float pend_xy, pend_yz, pend_zx;
 float force_input, speed;
 int pend_count = 0;
+int debugging = 0;
 
 #ifdef CADENCE_SUPPORTED
 // Feature bits: bit 2 - wheel pair present, bit 3 - crank pair present
@@ -146,13 +147,16 @@ void updateCP(String sType) {
 }
 
 void setup() {
+  int count = 0;
+
   Serial.begin(9600);  // initialize serial communication
-  /*
-  while (!Serial) {  / DO NOT DO THIS if no serial is connected. It waits forever
-    ;  // Wait for ready
+  while (!Serial) {  // Be sure to break out so we don't wait forever if no serial is connected
+    if (count++ > 8)
+      break;
+    delay(100);
   }
-  */
-  delay(500);  // wait for serial, but not forever
+  debugging = !!Serial;   // Whether we are connected to a serial console
+
   if (!IMU.begin()) {
     Serial.println("Failed to initialize IMU!");
     while (1);
@@ -165,8 +169,8 @@ void setup() {
   // Wait for an acceleration figure to settle and record the baseline.
   // For now, do this on every startup. Eventually, it will be done once
   // and written to non-volatile memory.
-  Serial.println("Calibrating");
-  delay(100);
+  Serial.print("Calibrating: ");
+  delay(200);
   while (!IMU.accelerationAvailable());
   IMU.readAcceleration(xc, yc, zc);
   Serial.print(xc);
@@ -272,7 +276,7 @@ void loop() {
         pend_count++;
       }
 
-      // check the csc measurement every 500ms
+      // check the wheel and crank measurements every 500ms
       if (oldWheelRev < wheelRev && currentMillis - oldWheelMillis >= 500) {
         updateCP("wheel");
       } else if (oldCrankRev < crankRev && currentMillis - oldCrankMillis >= 500) {
@@ -283,6 +287,11 @@ void loop() {
       // crankAdd();
         updateCP("timer");
       }
+
+      // if the wheel timer has not been updated for 4 seconds, zero out the
+      // internal speed value
+      if (currentMillis - time_prev_wheel > 4000)
+        speed = 0;
     }
 
     // when the central disconnects, turn off the LED:
