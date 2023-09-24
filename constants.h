@@ -11,7 +11,7 @@ const float rho = 1.293;
 // Hoods	0.42
 // Tops		0.46
 // Standing	0.5
-const float cda = 0.46;
+const float cda = 0.42;
 
 // Mass of bike and rider conbined
 const float mass = 90;
@@ -32,5 +32,12 @@ const float half_acd_rho = 0.5 * cda * rho;
 // Pend_yz assumes 33BLE is positioned with long axis across the bike.
 // Define this if the USB port points to the left.
 #undef USB_POINTS_LEFT
+
+// Reporting/averaging interval in ms
+#define REPORTING_INTERVAL    800
+
+// Interval (in ms) after which sensors are considered inactive
+#define INACTIVITY_INTERVAL   4000
+
 
 

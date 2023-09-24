@@ -32,7 +32,7 @@ short power = 0;
 float x, y, z;
 float xc, yc, zc;
 float pend_xy, pend_yz, pend_zx;
-float force_input, speed;
+float force_input;
 int pend_count = 0;
 int debugging = 0;
 
@@ -68,6 +68,7 @@ volatile unsigned long oldWheelRev = 0;
 volatile unsigned long oldWheelMillis = 0;  // last time sent to BLE
 volatile unsigned long lastWheeltime = 0;   // last time measurement taken
 // Note: the wheel time is in half-ms (1/2048 sec), unlike CSC where it is in ms
+volatile float speed = 0;                   // calculated speed in metres/sec
 
 volatile unsigned int crankRev = 0;
 volatile unsigned int oldCrankRev = 0;
@@ -262,6 +263,8 @@ void loop() {
       // and hence find the current power consumption.
       // Every time it's available, accumulate and average the pend angle
       if (IMU.accelerationAvailable()) {
+        float yz;
+
         IMU.readAcceleration(x, y, z);
 
        // Pend_yz assumes 33BLE is positioned with long axis across
@@ -269,20 +272,21 @@ void loop() {
         // pend_xy = y * xc - x * yc;
         // pend_zx = z * xc - x * zc;
 #ifdef USB_POINTS_LEFT        
-        pend_yz += z * yc - y * zc;
+        yz = z * yc - y * zc;
 #else 
-        pend_yz += y * zc - z * yc;
+        yz = y * zc - z * yc;
 #endif
+        pend_yz += yz;
         pend_count++;
       }
 
-      // check the wheel and crank measurements every 500ms
-      if (oldWheelRev < wheelRev && currentMillis - oldWheelMillis >= 500) {
+      // check the wheel and crank measurements every REPORTING_INTERVAL ms
+      if (oldWheelRev < wheelRev && currentMillis - oldWheelMillis >= REPORTING_INTERVAL) {
         updateCP("wheel");
-      } else if (oldCrankRev < crankRev && currentMillis - oldCrankMillis >= 500) {
+      } else if (oldCrankRev < crankRev && currentMillis - oldCrankMillis >= REPORTING_INTERVAL) {
         updateCP("crank");
-      } else if (currentMillis - previousMillis >= 500) {
-        // simulate some speed on the wheel, 500ms per rev or ~16km/h
+      } else if (currentMillis - previousMillis >= REPORTING_INTERVAL) {
+        // simulate some speed on the wheel, 500ms per rev ~16km/h, 800ms ~10km/h
       // wheelAdd();
       // crankAdd();
         updateCP("timer");
@@ -290,7 +294,7 @@ void loop() {
 
       // if the wheel timer has not been updated for 4 seconds, zero out the
       // internal speed value
-      if (currentMillis - time_prev_wheel > 4000)
+      if (currentMillis > time_prev_wheel + INACTIVITY_INTERVAL)
         speed = 0;
     }
 
