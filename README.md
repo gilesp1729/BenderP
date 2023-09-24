@@ -7,6 +7,7 @@ Libraries used:
 
 ArduinoBLE - Bluetooth Low Energy
 Arduino_LSM9DS1 - Arduino 33 BLE series IMU
+RunningMedian - median filtering library used to clean up accelerometer noise
 NanoBLEFlashPrefs - Non-volatile storage library for 33 BLE series (coming soon)
 
 Works in progress:

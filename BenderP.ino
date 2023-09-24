@@ -1,5 +1,6 @@
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
+#include <RunningMedian.h>
 
 // Cycle computer with cadence, speed and opposing-force power meter.
 
@@ -33,8 +34,6 @@ float x, y, z;
 float xc, yc, zc;
 float pend_xy, pend_yz, pend_zx;
 float force_input;
-int pend_count = 0;
-int debugging = 0;
 
 #ifdef CADENCE_SUPPORTED
 // Feature bits: bit 2 - wheel pair present, bit 3 - crank pair present
@@ -54,6 +53,9 @@ unsigned short flags = 0x10;
 
 // Analog pin for the current sensor
 #define CURRENT_PIN A0
+
+// Median filter
+RunningMedian filter(FILTER_SIZE);
 
 // Timing and counters
 volatile unsigned long previousMillis = 0;
@@ -102,9 +104,9 @@ void fillCP() {
 // Update old values and send CP
 void updateCP(String sType) {
 
-  if (pend_count > 0) {
-    // Average the pend angles collected in the last update interval
-    pend_yz /= pend_count;
+  if (filter.getCount() > 0) {
+    // Collect the pend angle from the last update interval
+    pend_yz = filter.getMedianAverage(FILTER_WINDOW);
 
     // calculate the power usage by adding the forces and multiplying by speed
     // force input = force total (from accelerometer) + air and rolling drag forces
@@ -133,18 +135,18 @@ void updateCP(String sType) {
 #endif
   Serial.print(" Pend angle : ");
   Serial.print(pend_yz);
-  Serial.print(" # of readings : ");
-  Serial.print(pend_count);
-  Serial.print(" Speed : ");
+  Serial.print(" (");
+  Serial.print(filter.getLowest());
+  Serial.print(" to ");
+  Serial.print(filter.getHighest());
+  Serial.print(") Speed : ");
   Serial.print(speed);
   Serial.print(" Power : ");
   Serial.print(power);
   Serial.print("  ");
   Serial.println(sType);
 
-  // Zero the counters
-  pend_count = 0;
-  pend_yz = 0;
+  filter.clear();
 }
 
 void setup() {
@@ -156,8 +158,7 @@ void setup() {
       break;
     delay(100);
   }
-  debugging = !!Serial;   // Whether we are connected to a serial console
-
+ 
   if (!IMU.begin()) {
     Serial.println("Failed to initialize IMU!");
     while (1);
@@ -261,7 +262,7 @@ void loop() {
 
       // Calculate the pendulum angle from the accelerometer
       // and hence find the current power consumption.
-      // Every time it's available, accumulate and average the pend angle
+      // Every time it's available, accumulate the pend angle
       if (IMU.accelerationAvailable()) {
         float yz;
 
@@ -276,8 +277,7 @@ void loop() {
 #else 
         yz = y * zc - z * yc;
 #endif
-        pend_yz += yz;
-        pend_count++;
+        filter.add(yz);
       }
 
       // check the wheel and crank measurements every REPORTING_INTERVAL ms

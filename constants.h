@@ -34,10 +34,15 @@ const float half_acd_rho = 0.5 * cda * rho;
 #undef USB_POINTS_LEFT
 
 // Reporting/averaging interval in ms
-#define REPORTING_INTERVAL    800
+#define REPORTING_INTERVAL    500
 
 // Interval (in ms) after which sensors are considered inactive
 #define INACTIVITY_INTERVAL   4000
 
-
+// Median filter stores FILTER_SIZE elements and averages the middle FILTER_WINDOW elements.
+// There should be roughly FILTER_SIZE readings taken in a period of REPORTING_INTERVAL ms.
+// (at the IMU default of ~110 Hz)
+// FILTER_SIZE should ideally be odd to stop sampling bias.
+#define FILTER_SIZE     51
+#define FILTER_WINDOW   20
 
