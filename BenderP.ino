@@ -47,13 +47,6 @@ unsigned short feature_bits = 0x04;
 unsigned short flags = 0x10;
 #endif
 
-// Pins for wheel and cadence sensors
-#define WHEEL_PIN 10
-#define CRANK_PIN 9
-
-// Analog pin for the current sensor
-#define CURRENT_PIN A0
-
 // Median filter
 RunningMedian filter(FILTER_SIZE);
 

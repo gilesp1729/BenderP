@@ -29,6 +29,10 @@ const float half_acd_rho = 0.5 * cda * rho;
 // Define this if there is a cadence sensor
 #undef CADENCE_SUPPORTED
 
+// Pins for wheel and cadence sensors
+#define WHEEL_PIN 10
+#define CRANK_PIN 9
+
 // Pend_yz assumes 33BLE is positioned with long axis across the bike.
 // Define this if the USB port points to the left.
 #undef USB_POINTS_LEFT
