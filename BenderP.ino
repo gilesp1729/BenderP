@@ -98,7 +98,8 @@ void fillCP() {
 void updateCP(String sType) {
 
   if (filter.getCount() > 0) {
-    // Collect the pend angle from the last update interval
+    // Collect the pend angle from the last update interval using a median cut.
+    // pend_yz = filter.getMedian();
     pend_yz = filter.getMedianAverage(FILTER_WINDOW);
 
     // calculate the power usage by adding the forces and multiplying by speed
@@ -138,8 +139,6 @@ void updateCP(String sType) {
   Serial.print(power);
   Serial.print("  ");
   Serial.println(sType);
-
-  filter.clear();
 }
 
 void setup() {
