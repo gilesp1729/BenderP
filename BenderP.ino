@@ -363,6 +363,7 @@ void loop()
 
       // If speed is zero, flash out the current percent slope. This is a debug
       // output on the pend_angle and verifies a correct static calibration.
+      // NOTE: SuperCycle must be set to not do any smoothing on power.
       if (speed < 0.001)
       {
         if (currentMillis - time_flash_slope > 1000)
@@ -371,9 +372,6 @@ void loop()
           {
             pend_yz = filter.getMedian();
             power = pend_yz * 100;        // TODO convert sin to tan
-            // TODO: SuperShitCycle averages adjacent power readings when positive, but not when negative!
-            // This means flashing can't be used. Or I have to hijack the cadence, or something else.
-            // Unfortunately, power is the only reading that alows negative values. Argh.     
             Serial.print("Flashing a slope of ");
             Serial.print(power);
             Serial.println(" percent");
