@@ -221,8 +221,9 @@ void setup()
   IMU.readAcceleration(x, y, z);
   println_xyz(x, y, z);
 
-  if (fabs(x) < 0.05 && fabs(y) < 0.05 && z > 0.95) {
-    // Device is lying flat withe Z-axis pointing up.
+  if (fabs(x) < 0.05 && fabs(y) < 0.05 && z > 0.93) {
+    // Device is lying flat withe Z-axis pointing up. 
+    // (loose limits to cope with variations in boards)
     // Store the calibration but don't mark it valid.
     // The next power-up when mounted on the bike will calibrate again and store it.
     Serial.println("Device is flat - resetting calibration");
