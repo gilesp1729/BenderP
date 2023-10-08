@@ -69,6 +69,8 @@ volatile unsigned long currentMillis = 0;
 volatile unsigned long time_prev_wheel = 0, time_now_wheel;
 volatile unsigned long time_prev_crank = 0, time_now_crank;
 volatile unsigned long time_chat = 100;  // dead zone for bounces
+unsigned long time_flash_slope = 0;
+int flash_slope = 0;
 
 volatile unsigned long wheelRev = 0;
 volatile unsigned long oldWheelRev = 0;
@@ -108,14 +110,14 @@ void fillCP()
 }
 
 // Update old values and send CP
-void updateCP(String sType) 
+void updateCP(bool calc_power, String sType) 
 {
 
-  if (filter.getCount() > 0) 
+  if (calc_power && filter.getCount() > 0) 
   {
     // Collect the pend angle from the last update interval using a median cut.
-    // pend_yz = filter.getMedian();
-    pend_yz = filter.getMedianAverage(FILTER_WINDOW);
+    pend_yz = filter.getMedian();
+    //pend_yz = filter.getMedianAverage(FILTER_WINDOW);
 
     // calculate the power usage by adding the forces and multiplying by speed
     // force input = force total (from accelerometer) + air and rolling drag forces
@@ -342,22 +344,53 @@ void loop()
       // check the wheel and crank measurements every REPORTING_INTERVAL ms
       if (oldWheelRev < wheelRev && currentMillis - oldWheelMillis >= REPORTING_INTERVAL) 
       {
-        updateCP("wheel");
+        updateCP(1, "wheel");
       } else if (oldCrankRev < crankRev && currentMillis - oldCrankMillis >= REPORTING_INTERVAL) 
       {
-        updateCP("crank");
+        updateCP(1, "crank");
       } else if (currentMillis - previousMillis >= REPORTING_INTERVAL) 
       {
         // simulate some speed on the wheel, 500ms per rev ~16km/h, 800ms ~10km/h
       // wheelAdd();
       // crankAdd();
-        updateCP("timer");
+        updateCP(0, "timer");
       }
 
       // if the wheel timer has not been updated for 4 seconds, zero out the
       // internal speed value
       if (currentMillis > time_prev_wheel + INACTIVITY_INTERVAL)
         speed = 0;
+
+      // If speed is zero, flash out the current percent slope. This is a debug
+      // output on the pend_angle and verifies a correct static calibration.
+      if (speed < 0.001)
+      {
+        if (currentMillis - time_flash_slope > 1000)
+        {
+          if (flash_slope)
+          {
+            pend_yz = filter.getMedian();
+            power = pend_yz * 100;        // TODO convert sin to tan
+            // TODO: SuperShitCycle averages adjacent power readings when positive, but not when negative!
+            // This means flashing can't be used. Or I have to hijack the cadence, or something else.
+            // Unfortunately, power is the only reading that alows negative values. Argh.     
+            Serial.print("Flashing a slope of ");
+            Serial.print(power);
+            Serial.println(" percent");
+          }
+          else
+          {
+            power = 0;
+          }
+          fillCP();
+          flash_slope ^= 1;
+          time_flash_slope = currentMillis;
+        }
+      }
+      else
+      {
+        time_flash_slope = currentMillis;
+      }
     }
 
     // when the central disconnects, turn off the LED:
