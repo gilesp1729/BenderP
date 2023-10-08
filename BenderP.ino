@@ -1,6 +1,7 @@
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <RunningMedian.h>
+#include <NanoBLEFlashPrefs.h>
 
 // Cycle computer with cadence, speed and opposing-force power meter.
 
@@ -31,7 +32,6 @@ unsigned char slBuffer[1];
 unsigned char fBuffer[4];
 short power = 0;
 float x, y, z;
-float xc, yc, zc;
 float pend_xy, pend_yz, pend_zx;
 float force_input;
 
@@ -49,6 +49,18 @@ unsigned short flags = 0x10;
 
 // Median filter
 RunningMedian filter(FILTER_SIZE);
+
+// Access to the flash (non-volatile) memory
+NanoBLEFlashPrefs flash;
+
+// Struct to be stored in flash. Holds calibration data.
+typedef struct Config
+{
+  float xc, yc, zc;     // Static config values (accelerometer readings)
+  bool is_valid;        // Set to true if config is valid and can be used on power-up
+} Config;
+
+Config config = {0, 0, 0, 0};
 
 // Timing and counters
 volatile unsigned long previousMillis = 0;
@@ -72,7 +84,8 @@ volatile unsigned long oldCrankMillis = 0;
 
 
 // Fill the CP measurement array and send it
-void fillCP() {
+void fillCP() 
+{
   int n = 0;  // to facilitate adding and removing stuff
   bleBuffer[n++] = flags & 0xff;
   bleBuffer[n++] = (flags >> 8) & 0xff;
@@ -95,9 +108,11 @@ void fillCP() {
 }
 
 // Update old values and send CP
-void updateCP(String sType) {
+void updateCP(String sType) 
+{
 
-  if (filter.getCount() > 0) {
+  if (filter.getCount() > 0) 
+  {
     // Collect the pend angle from the last update interval using a median cut.
     // pend_yz = filter.getMedian();
     pend_yz = filter.getMedianAverage(FILTER_WINDOW);
@@ -141,17 +156,54 @@ void updateCP(String sType) {
   Serial.println(sType);
 }
 
-void setup() {
+// Interrupt routines trigger when a pulse is received (falling edge on pin)
+void wheelAdd() 
+{
+  time_now_wheel = millis();
+  if (time_now_wheel > time_prev_wheel + time_chat) {
+    // Calculate the speed in m/s based on wheel circumference (needed for power calcs)
+    speed = (circ * 1000) / (time_now_wheel - time_prev_wheel);
+    wheelRev = wheelRev + 1;
+    time_prev_wheel = time_now_wheel;
+    lastWheeltime = millis() << 1;
+  }
+}
+
+void crankAdd() 
+{
+  time_now_crank = millis();
+  if (time_now_crank > time_prev_crank + time_chat) {
+    crankRev = crankRev + 1;
+    time_prev_crank = time_now_crank;
+    lastCranktime = millis();
+  }
+}
+
+// Short routine to print XYZ values from accelerometer.
+void println_xyz(float x, float y, float z) 
+{
+  Serial.print(x);
+  Serial.print(" ");
+  Serial.print(y);
+  Serial.print(" ");
+  Serial.println(z);
+}
+
+void setup() 
+{
   int count = 0;
 
   Serial.begin(9600);  // initialize serial communication
-  while (!Serial) {  // Be sure to break out so we don't wait forever if no serial is connected
-    if (count++ > 8)
+  while (!Serial) 
+  {  
+    // Be sure to break out so we don't wait forever if no serial is connected
+    if (count++ > 20)
       break;
     delay(100);
   }
  
-  if (!IMU.begin()) {
+  if (!IMU.begin()) 
+  {
     Serial.println("Failed to initialize IMU!");
     while (1);
   }
@@ -160,20 +212,52 @@ void setup() {
   Serial.print(IMU.accelerationSampleRate());
   Serial.println("Hz");
 
-  // Wait for an acceleration figure to settle and record the baseline.
-  // For now, do this on every startup. Eventually, it will be done once
-  // and written to non-volatile memory.
-  Serial.print("Calibrating: ");
+  // Wait for an acceleration figure to settle.
+  Serial.print("Checking calibration: ");
   delay(200);
   while (!IMU.accelerationAvailable());
-  IMU.readAcceleration(xc, yc, zc);
-  Serial.print(xc);
-  Serial.print(" ");
-  Serial.print(yc);
-  Serial.print(" ");
-  Serial.println(zc);
+  IMU.readAcceleration(x, y, z);
+  println_xyz(x, y, z);
+
+  if (fabs(x) < 0.05 && fabs(y) < 0.05 && z > 0.95) {
+    // Device is lying flat withe Z-axis pointing up.
+    // Store the calibration but don't mark it valid.
+    // The next power-up when mounted on the bike will calibrate again and store it.
+    Serial.println("Device is flat - resetting calibration");
+    config.xc = x;
+    config.yc = y;
+    config.zc = z;
+    config.is_valid = 0;
+    flash.deletePrefs();
+    flash.garbageCollection();
+    flash.writePrefs(&config, sizeof(config));
+  }
+  else
+  {
+    // We're not lying flat. Read the config from flash
+    flash.readPrefs(&config, sizeof(config));
+    if (config.is_valid) 
+    {
+      // The config is valid. Just use it.
+      Serial.print("Using valid configuration: ");
+      println_xyz(config.xc, config.yc, config.zc);      
+    }
+    else
+    {
+      // Not valid, so write it and mark as valid for next power-up
+      Serial.println("Device is not flat - storing calibration: ");
+      config.xc = x;
+      config.yc = y;
+      config.zc = z;
+      config.is_valid = 1;
+      println_xyz(config.xc, config.yc, config.zc);      
+      flash.writePrefs(&config, sizeof(config));
+    }
+  }
+  Serial.println(flash.statusString());
   
-  pinMode(LED_BUILTIN, OUTPUT);  // initialize the LED on pin 13 to indicate when a central is connected
+  // Initialize the LED on pin 13 to indicate when a central is connected
+  pinMode(LED_BUILTIN, OUTPUT);  
   digitalWrite(LED_BUILTIN, LOW);
 
   // Initialise BLE and establish cycling power characteristics
@@ -185,7 +269,7 @@ void setup() {
   CyclePowerService.addCharacteristic(CyclePowerSensorLocation);
   BLE.addService(CyclePowerService);
 
-  // Don't advertise this service; it will be found when the app connects
+  // Don't advertise this service; it will be found when the app connects,
   // if the app is looking for it
   batteryService.addCharacteristic(batteryLevelChar);
   BLE.addService(batteryService);
@@ -195,7 +279,6 @@ void setup() {
   lastCranktime = millis();
 
   // Write the initial values of all the characteristics
-
   slBuffer[0] = sensor_pos & 0xff;
   fBuffer[0] = feature_bits & 0xff;   // little endian
   fBuffer[1] = 0x00;
@@ -206,6 +289,7 @@ void setup() {
 
   fillCP();
 
+  // Attach the wheel and crank interrupt routines to their input pins
   attachInterrupt(digitalPinToInterrupt(WHEEL_PIN), wheelAdd, FALLING);
 #ifdef CADENCE_SUPPORTED
   attachInterrupt(digitalPinToInterrupt(CRANK_PIN), crankAdd, FALLING);
@@ -216,68 +300,54 @@ void setup() {
   Serial.println("Bluetooth device active, waiting for connections...");
 }
 
-// Interrupt routines trigger when a pulse is received (falling edge on pin)
-void wheelAdd() {
-  time_now_wheel = millis();
-  if (time_now_wheel > time_prev_wheel + time_chat) {
-    // Calculate the speed in m/s based on wheel circumference (needed for power calcs)
-    speed = (circ * 1000) / (time_now_wheel - time_prev_wheel);
-    wheelRev = wheelRev + 1;
-    time_prev_wheel = time_now_wheel;
-    lastWheeltime = millis() << 1;
-  }
-}
-
-void crankAdd() {
-  time_now_crank = millis();
-  if (time_now_crank > time_prev_crank + time_chat) {
-    crankRev = crankRev + 1;
-    time_prev_crank = time_now_crank;
-    lastCranktime = millis();
-  }
-}
-
-void loop() {
+void loop() 
+{
   // listen for BLE peripherals to connect:
   BLEDevice central = BLE.central();
 
   // if a central is connected to peripheral:
-  if (central) {
+  if (central) 
+  {
     Serial.print("Connected to central: ");
     // print the central's MAC address:
     Serial.println(central.address());
     // turn on the LED to indicate the connection:
     digitalWrite(LED_BUILTIN, HIGH);
 
-    while (central.connected()) {
+    while (central.connected()) 
+    {
       currentMillis = millis();
 
       // Calculate the pendulum angle from the accelerometer
       // and hence find the current power consumption.
       // Every time it's available, accumulate the pend angle
-      if (IMU.accelerationAvailable()) {
+      if (IMU.accelerationAvailable()) 
+      {
         float yz;
 
         IMU.readAcceleration(x, y, z);
 
        // Pend_yz assumes 33BLE is positioned with long axis across
        // the bike, and the USB port points to the right.
-        // pend_xy = y * xc - x * yc;
-        // pend_zx = z * xc - x * zc;
+        // pend_xy = y * config.xc - x * config.yc;
+        // pend_zx = z * config.xc - x * config.zc;
 #ifdef USB_POINTS_LEFT        
-        yz = z * yc - y * zc;
+        yz = z * config.yc - y * config.zc;
 #else 
-        yz = y * zc - z * yc;
+        yz = y * config.zc - z * config.yc;
 #endif
         filter.add(yz);
       }
 
       // check the wheel and crank measurements every REPORTING_INTERVAL ms
-      if (oldWheelRev < wheelRev && currentMillis - oldWheelMillis >= REPORTING_INTERVAL) {
+      if (oldWheelRev < wheelRev && currentMillis - oldWheelMillis >= REPORTING_INTERVAL) 
+      {
         updateCP("wheel");
-      } else if (oldCrankRev < crankRev && currentMillis - oldCrankMillis >= REPORTING_INTERVAL) {
+      } else if (oldCrankRev < crankRev && currentMillis - oldCrankMillis >= REPORTING_INTERVAL) 
+      {
         updateCP("crank");
-      } else if (currentMillis - previousMillis >= REPORTING_INTERVAL) {
+      } else if (currentMillis - previousMillis >= REPORTING_INTERVAL) 
+      {
         // simulate some speed on the wheel, 500ms per rev ~16km/h, 800ms ~10km/h
       // wheelAdd();
       // crankAdd();
