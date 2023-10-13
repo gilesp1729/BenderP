@@ -7,9 +7,6 @@
 
 #include "constants.h"
 
-// Bluetooth® Low Energy Cycling Power service (CP)
-BLEService cscService("1816");
-
 // Service and characteristics
 BLEService CyclePowerService("1818");
 BLECharacteristic CyclePowerFeature("2A65", BLERead, 4);
@@ -66,12 +63,14 @@ Config config = {0, 0, 0, 0};
 volatile unsigned long previousMillis = 0;
 volatile unsigned long currentMillis = 0;
 
+// Counters for wheel and crank interrupt routines
 volatile unsigned long time_prev_wheel = 0, time_now_wheel;
 volatile unsigned long time_prev_crank = 0, time_now_crank;
 volatile unsigned long time_chat = 100;  // dead zone for bounces
 unsigned long time_flash_slope = 0;
 int flash_slope = 0;
 
+// Counters for updating power and speed services
 volatile unsigned long wheelRev = 0;
 volatile unsigned long oldWheelRev = 0;
 volatile unsigned long oldWheelMillis = 0;  // last time sent to BLE
@@ -83,6 +82,10 @@ volatile unsigned int crankRev = 0;
 volatile unsigned int oldCrankRev = 0;
 volatile unsigned long lastCranktime = 0;
 volatile unsigned long oldCrankMillis = 0;
+
+volatile unsigned int outputWheelRev = 0;
+volatile unsigned long outputWheeltime = 0;
+volatile unsigned int outputInterval = 0;
 
 
 // Fill the CP measurement array and send it
@@ -109,8 +112,9 @@ void fillCP()
   CyclePowerMeasurement.writeValue(bleBuffer, n);
 }
 
-// Update old values and send CP
-void updateCP(bool calc_power, String sType) 
+
+// Update old values and send CP and CSC to BLE client
+void update_chars(bool calc_power, String sType) 
 {
 
   if (calc_power && filter.getCount() > 0) 
@@ -156,15 +160,29 @@ void updateCP(bool calc_power, String sType)
   Serial.print(power);
   Serial.print("  ");
   Serial.println(sType);
+
+  Serial.print("Output Wheel Rev.: ");
+  Serial.print(outputWheelRev);
+  Serial.print(" OutputWheelTime : ");
+  Serial.println(outputWheeltime);
 }
 
 // Interrupt routines trigger when a pulse is received (falling edge on pin)
 void wheelAdd() 
 {
   time_now_wheel = millis();
-  if (time_now_wheel > time_prev_wheel + time_chat) {
+  if (time_now_wheel > time_prev_wheel + time_chat) 
+  {
     // Calculate the speed in m/s based on wheel circumference (needed for power calcs)
     speed = (circ * 1000) / (time_now_wheel - time_prev_wheel);
+
+    // Calculate the output speed by interpolation (TODO. For now just approximate)
+    float output_speed = speed * 25.0 / 32.0;
+
+    // And the output interval to use for the next output pulse
+    outputInterval = (circ * 1000) / output_speed;
+
+    // Update the wheel counter and remember the time of last update
     wheelRev = wheelRev + 1;
     time_prev_wheel = time_now_wheel;
     lastWheeltime = millis() << 1;
@@ -281,7 +299,12 @@ void setup()
   lastWheeltime = millis() << 1;
   lastCranktime = millis();
 
-  // Write the initial values of all the characteristics
+  unsigned long t = millis();
+  lastWheeltime = t << 1;       // this is in half-ms
+  lastCranktime = t;
+  outputWheeltime = t;
+  
+  // Write the initial values of the CP (power) characteristics
   slBuffer[0] = sensor_pos & 0xff;
   fBuffer[0] = feature_bits & 0xff;   // little endian
   fBuffer[1] = 0x00;
@@ -289,7 +312,6 @@ void setup()
   fBuffer[3] = 0x00;
   CyclePowerFeature.writeValue(fBuffer, 4);
   CyclePowerSensorLocation.writeValue(slBuffer, 1);
-
   fillCP();
 
   // Attach the wheel and crank interrupt routines to their input pins
@@ -342,25 +364,41 @@ void loop()
         filter.add(yz);
       }
 
-      // check the wheel and crank measurements every REPORTING_INTERVAL ms
+      // If there an output interval, count it down till it expires. Then update the
+      // output wheel counters
+      if (outputInterval > 0 && currentMillis - outputWheeltime >= outputInterval)
+      {
+        outputWheelRev++;
+        outputWheeltime = currentMillis;
+
+        // TODO: here is where we output a pulse to the motor input pin
+
+      }
+
+      // Check and report the wheel and crank measurements every REPORTING_INTERVAL ms
       if (oldWheelRev < wheelRev && currentMillis - oldWheelMillis >= REPORTING_INTERVAL) 
       {
-        updateCP(1, "wheel");
-      } else if (oldCrankRev < crankRev && currentMillis - oldCrankMillis >= REPORTING_INTERVAL) 
+        update_chars(1, "wheel");
+      } 
+      else if (oldCrankRev < crankRev && currentMillis - oldCrankMillis >= REPORTING_INTERVAL) 
       {
-        updateCP(1, "crank");
-      } else if (currentMillis - previousMillis >= REPORTING_INTERVAL) 
+        update_chars(1, "crank");
+      } 
+      else if (currentMillis - previousMillis >= REPORTING_INTERVAL) 
       {
         // simulate some speed on the wheel, 500ms per rev ~16km/h, 800ms ~10km/h
       // wheelAdd();
       // crankAdd();
-        updateCP(0, "timer");
+        update_chars(0, "timer");
       }
 
       // if the wheel timer has not been updated for 4 seconds, zero out the
-      // internal speed value
+      // internal speed value, so the power resets to zero.
       if (currentMillis > time_prev_wheel + INACTIVITY_INTERVAL)
+      {
         speed = 0;
+        outputInterval = 0;
+      }
 
       // If speed is zero, flash out the current percent slope. This is a debug
       // output on the pend_angle and verifies a correct static calibration.
