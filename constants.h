@@ -33,6 +33,10 @@ const float half_acd_rho = 0.5 * cda * rho;
 #define WHEEL_PIN 10
 #define CRANK_PIN 9
 
+// Output pin for driving motor's wheel sensor input
+// (high pulse pulls OC output low)
+#define OUTPUT_PIN 8
+
 // Pend_yz assumes 33BLE is positioned with long axis across the bike.
 // Define this if the USB port points to the left.
 #undef USB_POINTS_LEFT

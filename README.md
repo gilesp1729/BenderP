@@ -26,8 +26,3 @@ To reset the calibration, power up or reset the board when lying on a flat level
 the accelerometer orientation is stored in non-volatile memory on the next power up and used thereafter.
 
 
-Works in progress:
-
-- Dynamic calibration of air and rolling resistance coefficients when not pedalling (requires cadence sensor)
-- Speed bending to control the speed limit on ebike motors depending on a wheel magnet sensor.
-

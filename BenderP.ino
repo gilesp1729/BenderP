@@ -31,6 +31,7 @@ short power = 0;
 float x, y, z;
 float pend_xy, pend_yz, pend_zx;
 float force_input;
+int connected = 0;
 
 #ifdef CADENCE_SUPPORTED
 // Feature bits: bit 2 - wheel pair present, bit 3 - crank pair present
@@ -186,6 +187,16 @@ void wheelAdd()
     wheelRev = wheelRev + 1;
     time_prev_wheel = time_now_wheel;
     lastWheeltime = millis() << 1;
+
+    // If we are not connected to a central, we are just echoing out the
+    // wheel sensor pulses to the output.
+    if (!connected)
+    {
+      // Output a pulse to the motor input pin
+      digitalWrite(OUTPUT_PIN, HIGH);
+      delay(3);   // TODO: Can/should I be doing this in an interrupt routine?
+      digitalWrite(OUTPUT_PIN, LOW);
+    }
   }
 }
 
@@ -314,6 +325,10 @@ void setup()
   CyclePowerSensorLocation.writeValue(slBuffer, 1);
   fillCP();
 
+  // Set up output pin
+  pinMode(OUTPUT_PIN, OUTPUT);
+  digitalWrite(OUTPUT_PIN, LOW);
+
   // Attach the wheel and crank interrupt routines to their input pins
   attachInterrupt(digitalPinToInterrupt(WHEEL_PIN), wheelAdd, FALLING);
 #ifdef CADENCE_SUPPORTED
@@ -341,6 +356,7 @@ void loop()
 
     while (central.connected()) 
     {
+      connected = 1;
       currentMillis = millis();
 
       // Calculate the pendulum angle from the accelerometer
@@ -371,8 +387,10 @@ void loop()
         outputWheelRev++;
         outputWheeltime = currentMillis;
 
-        // TODO: here is where we output a pulse to the motor input pin
-
+        // Output a pulse to the motor input pin
+        digitalWrite(OUTPUT_PIN, HIGH);
+        delay(3);
+        digitalWrite(OUTPUT_PIN, LOW);
       }
 
       // Check and report the wheel and crank measurements every REPORTING_INTERVAL ms
@@ -431,6 +449,7 @@ void loop()
     }
 
     // when the central disconnects, turn off the LED:
+    connected = 0;
     digitalWrite(LED_BUILTIN, LOW);
     Serial.print("Disconnected from central: ");
     Serial.println(central.address());
