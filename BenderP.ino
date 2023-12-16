@@ -32,6 +32,8 @@ float x, y, z;
 float pend_xy, pend_yz, pend_zx;
 float force_input;
 int connected = 0;
+float multiplier = 1.0f;
+int multiplying = 0;
 
 #ifdef CADENCE_SUPPORTED
 // Feature bits: bit 2 - wheel pair present, bit 3 - crank pair present
@@ -87,6 +89,8 @@ volatile unsigned long oldCrankMillis = 0;
 volatile unsigned int outputWheelRev = 0;
 volatile unsigned long outputWheeltime = 0;
 volatile unsigned int outputInterval = 0;
+volatile unsigned long outputPulseTime = 0;
+volatile unsigned long outputPulseLength = 0;
 
 
 // Fill the CP measurement array and send it
@@ -174,14 +178,35 @@ void wheelAdd()
   time_now_wheel = millis();
   if (time_now_wheel > time_prev_wheel + time_chat) 
   {
-    // Calculate the speed in m/s based on wheel circumference (needed for power calcs)
+    // Calculate the speed in m/s based on wheel circumference
     speed = (circ * 1000) / (time_now_wheel - time_prev_wheel);
 
-    // Calculate the output speed by interpolation (TODO. For now just approximate)
-    float output_speed = speed * 25.0 / 32.0;
+    // Calculate the output speed multiplier based on input speed.
+    // Build in some hysteresis to we don't hunt up and down when cuising
+    // very near the multiplier's set speed.
+    if (!multiplying && speed > SPEED_THRESHOLD)
+    {
+      multiplying = 1;
+      multiplier = MULTIPLIER;
+    }
+    else if (multiplying && speed < SPEED_THRESHOLD - SPEED_OFFSET)
+    {
+      multiplying = 0;
+      multiplier = 1.0f;
+    }
+
+    // TODO: Do this speed change over a small number (3-6) of wheel revolutions
+
+    float output_speed = speed / multiplier;
 
     // And the output interval to use for the next output pulse
     outputInterval = (circ * 1000) / output_speed;
+    
+    // And the length of the output pulse. Make sure it doen't go to zero ms
+    // TODO: do this in micros to improve the resolution
+    outputPulseLength = outputInterval / OUTPUT_PULSE_FRAC;
+    if (outputPulseLength < 1)
+      outputPulseLength = 1;
 
     // Update the wheel counter and remember the time of last update
     wheelRev = wheelRev + 1;
@@ -194,8 +219,7 @@ void wheelAdd()
     {
       // Output a pulse to the motor input pin
       digitalWrite(OUTPUT_PIN, HIGH);
-      delay(3);   // TODO: Can/should I be doing this in an interrupt routine?
-      digitalWrite(OUTPUT_PIN, LOW);
+      outputPulseTime = time_now_wheel;
     }
   }
 }
@@ -380,7 +404,14 @@ void loop()
         filter.add(yz);
       }
 
-      // If there an output interval, count it down till it expires. Then update the
+      // If we are outputting a pulse, turn it off after the appropriate time
+      if (outputPulseTime > 0 && currentMillis - outputPulseTime >= outputPulseLength)
+      {
+        digitalWrite(OUTPUT_PIN, LOW);
+        outputPulseTime = 0;
+      }
+
+      // If there is an output interval, count it down till it expires. Then update the
       // output wheel counters
       if (outputInterval > 0 && currentMillis - outputWheeltime >= outputInterval)
       {
@@ -389,8 +420,7 @@ void loop()
 
         // Output a pulse to the motor input pin
         digitalWrite(OUTPUT_PIN, HIGH);
-        delay(3);
-        digitalWrite(OUTPUT_PIN, LOW);
+        outputPulseTime = currentMillis;
       }
 
       // Check and report the wheel and crank measurements every REPORTING_INTERVAL ms
@@ -416,6 +446,9 @@ void loop()
       {
         speed = 0;
         outputInterval = 0;
+        outputPulseTime = 0;
+        multiplying = 0;
+        multiplier = 1.0f;
       }
 
       // If speed is zero, flash out the current percent slope. This is a debug
@@ -455,5 +488,15 @@ void loop()
     Serial.println(central.address());
     BLE.advertise();
     Serial.println("Bluetooth device active, waiting for connections...");
+  }
+  else
+  {
+    // No central is connected, we still need to be aware of pulses being echoed out
+    // from the wheel interrupt, and turn them off at the right time
+    if (outputPulseTime > 0 && currentMillis - outputPulseTime >= outputPulseLength)
+    {
+      digitalWrite(OUTPUT_PIN, LOW);
+      outputPulseTime = 0;
+    }
   }
 }

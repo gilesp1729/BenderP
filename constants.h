@@ -54,3 +54,17 @@ const float half_acd_rho = 0.5 * cda * rho;
 #define FILTER_SIZE     129
 #define FILTER_WINDOW   10
 
+// Multiplier cutoff. 
+// Below this speed the multiplier is 1.0
+// When speed passed, multiplier kicks in
+// When slowing down, multiplier remains until we are below (speed-offset)
+#define MULTIPLIER      1.18f
+#define SPEED_THRESHOLD 24
+#define SPEED_OFFSET    4
+
+// The size of the output pulse, expressed as a fraction of the wheel revolution.
+// (the same as the magnet size as a fraction of the path it takes around the wheel)
+// This is given as a denominator, e.g. 144 means magnet is 1/144 of the wheel rev
+#define OUTPUT_PULSE_FRAC 144
+
+
